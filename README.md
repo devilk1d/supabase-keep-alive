@@ -11,6 +11,7 @@
     <a href="#mode-1-github-actions-recommended-for-247-automation">GitHub Actions</a> &middot;
     <a href="#mode-2-local-dashboard-localhost3000">Local Dashboard</a> &middot;
     <a href="#mode-3-docker-compose">Docker</a> &middot;
+    <a href="#failure-alerts-discord-and-telegram">Alerts</a> &middot;
     <a href="#faq">FAQ</a>
   </p>
 </div>
@@ -157,9 +158,10 @@ Use this mode to keep your Supabase projects active every 48 hours without keepi
 ]
 ```
 
-4. *(Optional)* Add notification secrets if you want alerts whenever any ping fails:
+4. *(Optional)* Add failure notification secrets as **separate Repository Secrets** (do **not** put them inside the `PROJECTS_CONFIG` JSON). See [Failure Alerts (Discord and Telegram)](#failure-alerts-discord-and-telegram) for setup details:
    - `DISCORD_WEBHOOK_URL`
-   - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
 5. Go to **Actions -> Supabase Keep-Alive -> Run workflow** to trigger an immediate test run. Going forward, GitHub runs it automatically every 48 hours (`0 0 */2 * *`).
 
 > [!IMPORTANT]
@@ -209,6 +211,55 @@ ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString
 ```
 
 Open `http://localhost:3000`. Database state is stored in the `keep_alive_data` Docker volume.
+
+---
+
+## Failure Alerts (Discord and Telegram)
+
+You can configure **Discord**, **Telegram**, or **both simultaneously**. Whenever a ping fails (`HTTP` error or network timeout), `core/notifier.ts` sends a plain-text summary of the failed project(s). Successful pings (`HTTP 200`) do not send messages so your channels stay quiet.
+
+### 1. Obtain Your Credentials
+
+- **Discord (`DISCORD_WEBHOOK_URL`):**
+  1. Open your Discord server -> **Server Settings -> Integrations -> Webhooks**.
+  2. Click **New Webhook**, select the target channel, and click **Copy Webhook URL**.
+- **Telegram (`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`):**
+  1. Message `@BotFather` on Telegram and run `/newbot` to receive your `TELEGRAM_BOT_TOKEN`.
+  2. Send `/start` (or any message) to your new bot.
+  3. Find your `TELEGRAM_CHAT_ID` via `@userinfobot` or by visiting `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`.
+
+### 2. Where to Put Them
+
+> [!IMPORTANT]
+> Do **not** place Discord or Telegram keys inside the `PROJECTS_CONFIG` JSON array. They are always configured as separate environment variables / repository secrets.
+
+- **For GitHub Actions:**
+  Open your repository -> **Settings -> Secrets and variables -> Actions -> Secrets**, and click **New repository secret** for each key alongside `PROJECTS_CONFIG`:
+  - `DISCORD_WEBHOOK_URL` = `https://discord.com/api/webhooks/...`
+  - `TELEGRAM_BOT_TOKEN` = `123456789:AAH...`
+  - `TELEGRAM_CHAT_ID` = `987654321` (or `-100...` for a group/channel)
+- **For Local Dashboard & Docker:**
+  Add the same keys to `.env.local` (see `.env.example`), then restart `npm run dev` or `docker compose up -d`:
+
+```env
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+TELEGRAM_BOT_TOKEN=123456789:AAH...
+TELEGRAM_CHAT_ID=987654321
+```
+
+### 3. Test Alerts Locally
+
+Run the headless script with an intentionally invalid Supabase URL to trigger a failure alert without touching your real projects:
+
+```bash
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." \
+TELEGRAM_BOT_TOKEN="123456789:AAH..." \
+TELEGRAM_CHAT_ID="987654321" \
+PROJECTS_CONFIG='[{"name":"alert-test","url":"https://invalid-test-ref.supabase.co","anonKey":"invalid-key-1234567890"}]' \
+npx tsx scripts/ping-headless.ts
+```
+
+A successful delivery logs `[keep-alive] Failure alerts delivered via: discord, telegram`.
 
 ---
 
