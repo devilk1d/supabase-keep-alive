@@ -104,3 +104,59 @@ dialog::backdrop {
   overscroll-behavior: contain;
   background-color: rgba(9, 9, 11, 0.6);
 }
+
+input:not([type="checkbox"]):not([type="radio"]):user-invalid {
+  border-color: var(--status-crimson);
+}
+
+.projects-table-region {
+  container-type: inline-size;
+  overflow-x: auto;
+}
+
+@container (width < 720px) {
+  .projects-table,
+  .projects-table thead,
+  .projects-table tbody,
+  .projects-table tr,
+  .projects-table th,
+  .projects-table td {
+    display: block;
+  }
+
+  .projects-table thead {
+    display: none;
+  }
+
+  .projects-table tr.project-summary-row {
+    border-bottom: 1px solid var(--border-default);
+    padding: 0.875rem 1rem;
+  }
+
+  .projects-table tr.project-summary-row td,
+  .projects-table tr.project-summary-row th {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.3rem 0;
+    border: 0;
+    text-align: right;
+  }
+
+  .projects-table tr.project-summary-row th {
+    justify-content: flex-start;
+    text-align: left;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .projects-table tr.project-summary-row td[data-label]::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: left;
+  }
+}
