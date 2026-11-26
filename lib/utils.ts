@@ -14,27 +14,48 @@ ON CONFLICT (id) DO NOTHING;
 
 ALTER TABLE public._keep_alive ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "allow_anon_keep_alive_select" ON public._keep_alive;
-CREATE POLICY "allow_anon_keep_alive_select"
-  ON public._keep_alive
-  FOR SELECT
-  TO anon
-  USING (id = 1);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = '_keep_alive'
+      AND policyname = 'allow_anon_keep_alive_select'
+  ) THEN
+    CREATE POLICY "allow_anon_keep_alive_select"
+      ON public._keep_alive
+      FOR SELECT
+      TO anon
+      USING (id = 1);
+  END IF;
 
-DROP POLICY IF EXISTS "allow_anon_keep_alive_insert" ON public._keep_alive;
-CREATE POLICY "allow_anon_keep_alive_insert"
-  ON public._keep_alive
-  FOR INSERT
-  TO anon
-  WITH CHECK (id = 1);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = '_keep_alive'
+      AND policyname = 'allow_anon_keep_alive_insert'
+  ) THEN
+    CREATE POLICY "allow_anon_keep_alive_insert"
+      ON public._keep_alive
+      FOR INSERT
+      TO anon
+      WITH CHECK (id = 1);
+  END IF;
 
-DROP POLICY IF EXISTS "allow_anon_keep_alive_update" ON public._keep_alive;
-CREATE POLICY "allow_anon_keep_alive_update"
-  ON public._keep_alive
-  FOR UPDATE
-  TO anon
-  USING (id = 1)
-  WITH CHECK (id = 1);
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = '_keep_alive'
+      AND policyname = 'allow_anon_keep_alive_update'
+  ) THEN
+    CREATE POLICY "allow_anon_keep_alive_update"
+      ON public._keep_alive
+      FOR UPDATE
+      TO anon
+      USING (id = 1)
+      WITH CHECK (id = 1);
+  END IF;
+END $$;
 
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT SELECT, INSERT, UPDATE ON TABLE public._keep_alive TO anon;`;
