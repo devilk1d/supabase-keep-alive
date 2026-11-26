@@ -1,40 +1,72 @@
-# Supabase Keep-Alive
-
-An open-source, privacy-first automation and monitoring tool that prevents Supabase free-tier projects from pausing after 7 days of inactivity.
-
-Built with a single-repository, local-first architecture requiring zero cloud hosting:
-
-- **Automated Background Worker (GitHub Actions):** Pings all configured projects every 48 hours (`0 0 */2 * *`) via `npx tsx scripts/ping-headless.ts` using a single `PROJECTS_CONFIG` repository secret.
-- **Local-First Dashboard (`localhost:3000`):** Optional Next.js + SQLite web interface to manage projects, encrypt keys at rest with AES-256-GCM, run live connection tests, inspect latency logs, and export the `PROJECTS_CONFIG` JSON secret.
+<div align="center">
+  <img src="app/icon.svg" alt="Supabase Keep-Alive Logo" width="64" height="64" />
+  <h1>Supabase Keep-Alive</h1>
+  <p>
+    <strong>Keep Supabase free-tier databases active automatically without cloud hosting.</strong><br />
+    Scheduled 48-hour GitHub Actions worker + optional local-first SQLite monitoring dashboard.
+  </p>
+  <p>
+    <a href="#how-it-works">How It Works</a> &middot;
+    <a href="#step-1-prepare-each-supabase-project">SQL Setup</a> &middot;
+    <a href="#mode-1-github-actions-recommended-for-247-automation">GitHub Actions</a> &middot;
+    <a href="#mode-2-local-dashboard-localhost3000">Local Dashboard</a> &middot;
+    <a href="#mode-3-docker-compose">Docker</a> &middot;
+    <a href="#faq">FAQ</a>
+  </p>
+</div>
 
 ---
 
-## Architecture Overview
+## Why This Exists
 
-```text
-supabase-keep-alive/
-├── .github/workflows/keep-alive.yml   # 48h cron + manual workflow_dispatch
-├── app/                               # Next.js App Router dashboard and API routes
-├── components/                        # Monochrome UI primitives and dashboard modals
-├── core/
-│   ├── pinger.ts                      # Shared Supabase REST UPSERT and latency timer
-│   ├── notifier.ts                    # Optional Discord and Telegram failure webhooks
-│   └── types.ts                       # Shared domain TypeScript types
-├── lib/
-│   ├── crypto.ts                      # AES-256-GCM encryption and decryption utilities
-│   ├── db.ts                          # Auto-migrating SQLite schema via Drizzle ORM
-│   └── utils.ts                       # Validation, formatting, and SQL snippet
-├── scripts/
-│   └── ping-headless.ts               # CLI runner for GitHub Actions
-├── docker-compose.yml                 # One-command local container setup
-└── .env.example                       # Environment template
+Supabase pauses free-tier projects after **7 days of database inactivity**. Running a separate cloud server or cron service just to ping your projects defeats the purpose of staying on a zero-cost stack.
+
+**Supabase Keep-Alive** solves this with two decoupled parts in a single repository:
+
+1. **Automated Cloud Worker (GitHub Actions):** Runs every **48 hours** (`0 0 */2 * *`) on GitHub's runners using a single encrypted `PROJECTS_CONFIG` repository secret. Your computer does **not** need to stay on.
+2. **Local-First Dashboard (`localhost:3000`):** An optional Next.js + SQLite UI you open whenever you want to add projects, verify live connectivity, inspect latency history, and export the `PROJECTS_CONFIG` JSON secret with one click.
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+  subgraph Local ["Local Machine (Optional, On-Demand)"]
+    UI["Dashboard UI (localhost:3000)"]
+    DB[("local.db (SQLite + AES-256-GCM)")]
+    UI <--> DB
+    UI -- "Export Secret (PROJECTS_CONFIG)" --> Secret["GitHub Repository Secret"]
+  end
+
+  subgraph GitHub ["GitHub Actions (Every 48h)"]
+    Runner["scripts/ping-headless.ts"]
+    Secret --> Runner
+    Runner -. "On failure" .-> Alerts["Discord / Telegram"]
+  end
+
+  subgraph Supabase ["Each Supabase Project"]
+    Table["public._keep_alive (id = 1, RLS locked)"]
+  end
+
+  UI -- "Manual Ping / Test Connection" --> Table
+  Runner -- "Atomic REST UPSERT" --> Table
 ```
 
+> [!NOTE]
+> The Local Dashboard and GitHub Actions run independently and never conflict. Both perform an atomic REST `UPSERT` on row `id = 1` of `public._keep_alive`. You can close the local dashboard anytime — GitHub Actions keeps running on schedule in the cloud.
+
 ---
 
-## Step 1: Prepare Each Supabase Project (Non-Destructive SQL)
+## Step 1: Prepare Each Supabase Project
 
-Run the following SQL once in your Supabase project's **SQL Editor**. It creates an isolated `public._keep_alive` table restricted to a single row (`id = 1`) with Row Level Security policies scoped strictly to `anon`. No existing application tables or user data are read or modified.
+Before adding a project, run the SQL below once inside your Supabase project's **SQL Editor**.
+
+**What this script does:**
+- Creates an isolated table `public._keep_alive` restricted by `CHECK (id = 1)` so only a single row can ever exist.
+- Seeds row `id = 1` safely (`ON CONFLICT DO NOTHING`).
+- Enables Row Level Security (`RLS`) with `SELECT`, `INSERT`, and `UPDATE` policies scoped strictly to `anon` and `id = 1`.
+- Never reads, alters, or deletes any of your existing application tables or user data.
 
 ```sql
 CREATE TABLE IF NOT EXISTS public._keep_alive (
@@ -95,15 +127,20 @@ GRANT USAGE ON SCHEMA public TO anon;
 GRANT SELECT, INSERT, UPDATE ON TABLE public._keep_alive TO anon;
 ```
 
+> [!TIP]
+> If Supabase displays a **"Potential issue detected"** confirmation because of `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`, click **Run query** — enabling RLS on this newly created `_keep_alive` table is intentional and safe.
+
 ---
 
-## Mode 1: Automated GitHub Actions (Headless Mode)
+## Mode 1: GitHub Actions (Recommended for 24/7 Automation)
 
-Use this mode if you want zero local uptime and fully automated 48-hour pings on GitHub's runners.
+Use this mode to keep your Supabase projects active every 48 hours without keeping your computer running.
 
-1. Fork or clone this repository to your GitHub account.
-2. Open your repository on GitHub and navigate to **Settings -> Secrets and variables -> Actions**.
-3. Create a new repository secret named `PROJECTS_CONFIG` containing a JSON array of your Supabase targets:
+1. **Fork or clone** this repository to your GitHub account.
+2. Open your repository on GitHub and go to **Settings** (repository tab) -> **Secrets and variables** -> **Actions**.
+3. Under **Repository secrets**, click **New repository secret**:
+   - **Name:** `PROJECTS_CONFIG`
+   - **Secret:** paste the JSON array of your Supabase projects (you can generate this automatically using **Export Secret** in the Local Dashboard, or write it manually):
 
 ```json
 [
@@ -120,12 +157,15 @@ Use this mode if you want zero local uptime and fully automated 48-hour pings on
 ]
 ```
 
-4. Optionally add alert secrets if you want failure notifications:
+4. *(Optional)* Add notification secrets if you want alerts whenever any ping fails:
    - `DISCORD_WEBHOOK_URL`
    - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
-5. Go to **Actions -> Supabase Keep-Alive** and click **Run workflow** to verify immediately. Thereafter, the workflow executes automatically every 48 hours (`0 0 */2 * *`).
+5. Go to **Actions -> Supabase Keep-Alive -> Run workflow** to trigger an immediate test run. Going forward, GitHub runs it automatically every 48 hours (`0 0 */2 * *`).
 
-You can also test the headless runner locally:
+> [!IMPORTANT]
+> GitHub Actions `schedule` triggers only run on your repository's **default branch** (`master` or `main`). Use **Run workflow** (`workflow_dispatch`) when testing manually on another branch.
+
+You can also run the headless script directly from your terminal:
 
 ```bash
 PROJECTS_CONFIG='[{"name":"demo","url":"https://your-ref.supabase.co","anonKey":"your-anon-key"}]' npx tsx scripts/ping-headless.ts
@@ -133,71 +173,106 @@ PROJECTS_CONFIG='[{"name":"demo","url":"https://your-ref.supabase.co","anonKey":
 
 ---
 
-## Mode 2: Local-First Dashboard (`localhost:3000`)
+## Mode 2: Local Dashboard (`localhost:3000`)
 
-Use the local dashboard to manage projects visually, test live connections before saving, inspect per-project ping logs, and generate your `PROJECTS_CONFIG` secret with one click.
+Use the local dashboard to manage targets visually, run live connection tests before saving, inspect ping latency logs, and export your `PROJECTS_CONFIG` JSON.
 
 ### Prerequisites
 
-- Node.js 20+ (tested with Node 22 and Node 26)
+- Node.js 20+ (tested on Node 22 and Node 26)
 
 ### Quick Start
 
 ```bash
 npm install
 cp .env.example .env.local
-```
-
-Generate a persistent 32-byte encryption key (optional; if omitted, `.env.local` is provisioned automatically on first boot):
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-Start the dashboard:
-
-```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000` in your browser.
 
-### Dashboard Capabilities
+### What Happens Automatically
 
-- **Auto-Initialized SQLite (`local.db`):** Tables `projects` and `ping_logs` are created automatically on first request with no manual migration step.
-- **AES-256-GCM Secret Storage:** Every `anonKey` is encrypted with a random 12-byte IV and GCM authentication tag before hitting disk, and decrypted only in server memory during pings or secret export.
-- **Live Connection Tester:** Validate URL, anon key, and `public._keep_alive` RLS permissions directly inside the **Add Project** modal before saving.
-- **Expandable Log Drawer:** Inspect recent HTTP status codes, round-trip latency (`ms`), and diagnostic messages per project.
-- **Export GitHub Secret Bridge:** Click **Export Secret** to format all active projects into clean JSON ready to paste into `PROJECTS_CONFIG`.
+- **Zero-Config SQLite (`local.db`):** Tables `projects` and `ping_logs` are created on first boot with no manual migrations.
+- **AES-256-GCM Encryption:** Every `anonKey` is encrypted with a random 12-byte IV and GCM auth tag before being written to SQLite, and decrypted only in server memory when pinging or exporting secrets. If `ENCRYPTION_KEY` is omitted, a 32-byte key is generated in `.env.local` on first run.
+- **Live Connection Tester:** Verify your Supabase URL, `anonKey`, and `public._keep_alive` RLS policies inside **Add Project** before saving.
+- **Secret Bridge:** Click **Export Secret** to copy a clean JSON array ready for GitHub's `PROJECTS_CONFIG` secret.
 
 ---
 
 ## Mode 3: Docker Compose
 
-Run the local dashboard in an isolated container with persistent SQLite storage:
+Run the local dashboard inside a container with persistent SQLite storage:
 
 ```bash
 ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") docker compose up --build -d
 ```
 
-The dashboard will be available at `http://localhost:3000`, with SQLite persisted in the `keep_alive_data` Docker volume.
+Open `http://localhost:3000`. Database state is stored in the `keep_alive_data` Docker volume.
+
+---
+
+## Project Structure
+
+```text
+supabase-keep-alive/
+├── .github/workflows/keep-alive.yml   # 48h scheduled workflow + workflow_dispatch
+├── app/
+│   ├── icon.svg                       # Monochrome heartbeat favicon
+│   ├── globals.css                    # Light/dark monochrome tokens & responsive table styles
+│   ├── layout.tsx                     # Root layout (Inter & JetBrains Mono)
+│   ├── page.tsx                       # Local monitoring dashboard
+│   └── api/                           # SQLite CRUD, ping, test, and secret export endpoints
+├── components/
+│   ├── ui/                            # Reusable primitives (Button, Badge, Modal, CopyButton, Logo)
+│   └── dashboard/                     # ProjectTable, ProjectRow, and setup/export modals
+├── core/
+│   ├── pinger.ts                      # Shared Supabase REST UPSERT and latency timer
+│   ├── notifier.ts                    # Optional Discord and Telegram failure webhooks
+│   └── types.ts                       # Shared domain TypeScript interfaces
+├── lib/
+│   ├── crypto.ts                      # AES-256-GCM encrypt/decrypt utilities
+│   ├── db.ts                          # Auto-initializing SQLite database (Drizzle ORM)
+│   └── utils.ts                       # Validation, formatting, and public._keep_alive SQL
+├── scripts/
+│   └── ping-headless.ts               # CLI entry point for GitHub Actions
+├── Dockerfile                         # Container build definition
+├── docker-compose.yml                 # Local Docker Compose setup
+└── .env.example                       # Environment variable template
+```
 
 ---
 
 ## Environment Variables
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `ENCRYPTION_KEY` | Recommended | 64-character hex key (32 bytes) for AES-256-GCM encryption of `anonKey` values in SQLite. |
-| `DATABASE_PATH` | Optional | Path to the SQLite database file (defaults to `./local.db`). |
-| `DISCORD_WEBHOOK_URL` | Optional | Discord webhook URL notified when any ping fails. |
-| `TELEGRAM_BOT_TOKEN` | Optional | Telegram bot token used with `TELEGRAM_CHAT_ID` for failure alerts. |
-| `TELEGRAM_CHAT_ID` | Optional | Target Telegram chat ID for failure alerts. |
-| `PROJECTS_CONFIG` | GitHub Actions only | JSON array of `{ name, url, anonKey }` targets used by `scripts/ping-headless.ts`. |
+| Variable | Where Used | Required | Description |
+| --- | --- | --- | --- |
+| `ENCRYPTION_KEY` | Local / Docker | Recommended | 64-character hex key (32 bytes) for AES-256-GCM encryption of `anonKey` in SQLite. |
+| `DATABASE_PATH` | Local / Docker | Optional | Path to the SQLite database file (defaults to `./local.db`). |
+| `DISCORD_WEBHOOK_URL` | Both | Optional | Discord webhook URL notified when any ping fails. |
+| `TELEGRAM_BOT_TOKEN` | Both | Optional | Telegram bot token paired with `TELEGRAM_CHAT_ID` for failure alerts. |
+| `TELEGRAM_CHAT_ID` | Both | Optional | Target Telegram chat ID for failure alerts. |
+| `PROJECTS_CONFIG` | GitHub Actions | Required in CI | JSON array of `{ name, url, anonKey }` targets read by `scripts/ping-headless.ts`. |
 
 ---
 
-## Verification Commands
+## FAQ
+
+**Does my computer need to stay on for keep-alive pings to work?**
+No. Once `PROJECTS_CONFIG` is saved in GitHub Repository Secrets, GitHub Actions runs on GitHub's servers every 48 hours even when your computer is turned off.
+
+**Why doesn't the local dashboard automatically show runs triggered by GitHub Actions?**
+By design, there is no cloud backend syncing them. Your local dashboard reads only from `local.db` on your machine, and updates when you click **Ping** or **Ping All**. To verify automated cloud runs, check the **Actions** tab on GitHub or inspect the `last_ping` timestamp in `public._keep_alive` on Supabase.
+
+**Will running the local dashboard and GitHub Actions at the same time cause a conflict?**
+No. Both send an atomic PostgreSQL `UPSERT` (`ON CONFLICT (id) DO UPDATE`) targeting `id = 1`, which PostgreSQL serializes safely without errors or duplicate rows.
+
+**Where is the repository secrets page on GitHub?**
+Open your repository (not your personal profile settings), go to **Settings -> Secrets and variables -> Actions -> Secrets -> New repository secret**.
+
+---
+
+## Verification
 
 ```bash
 npm run lint

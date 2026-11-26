@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { PingResult, ProjectSummary } from "@/core/types";
 import { Button } from "@/components/ui/Button";
+import { Logo } from "@/components/ui/Logo";
 import { AddProjectModal } from "./AddProjectModal";
 import { ExportSecretModal } from "./ExportSecretModal";
 import { ProjectTable } from "./ProjectTable";
@@ -223,13 +224,16 @@ export function DashboardClient({ initialProjects }: DashboardClientProps) {
     <div className="min-h-screen bg-bg-primary text-text-primary">
       <header className="border-b border-border-default bg-bg-primary">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="min-w-0">
-            <h1 className="text-base font-semibold tracking-tight text-text-primary">
-              Supabase Keep-Alive
-            </h1>
-            <p className="mt-0.5 text-xs text-text-secondary">
-              Local SQLite monitor and GitHub Actions secret bridge
-            </p>
+          <div className="flex items-center gap-3 min-w-0">
+            <Logo size={34} />
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold tracking-tight text-text-primary">
+                Supabase Keep-Alive
+              </h1>
+              <p className="mt-0.5 text-xs text-text-secondary">
+                Local SQLite monitor and GitHub Actions secret bridge
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
